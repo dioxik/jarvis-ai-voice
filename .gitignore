@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.expo/
+*.local
+.env
+.env.*
+*.log
+android/
+ios/
+.eas/

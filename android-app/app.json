@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "J.A.R.V.I.S",
+    "slug": "jarvis-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "backgroundColor": "#000814",
+    // "icon": "./assets/icon.png",
+    "splash": {
+      "backgroundColor": "#000814"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#000814"
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET"
+      ],
+      "package": "com.gzw.jarvis"
+    },
+    "plugins": [
+      [
+        "expo-av",
+        {
+          "microphonePermission": "J.A.R.V.I.S potrzebuje dostępu do mikrofonu."
+        }
+      ]
+    ]
+  }
+}

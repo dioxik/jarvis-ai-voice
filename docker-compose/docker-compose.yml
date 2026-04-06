@@ -1,0 +1,70 @@
+version: '3.9'
+
+services:
+  # ─── LLM: Ollama ─────────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: jarvis-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Remove the deploy section if no GPU available
+
+  # ─── STT: Whisper (faster-whisper REST API) ───────────────────────────────────
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest-gpu
+    container_name: jarvis-whisper
+    restart: unless-stopped
+    environment:
+      - ASR_MODEL=base
+      - ASR_ENGINE=faster_whisper
+    ports:
+      - "9000:9000"
+    # For CPU-only, use: onerahmet/openai-whisper-asr-webservice:latest
+
+  # ─── TTS: Piper (REST wrapper) ────────────────────────────────────────────────
+  piper:
+    build:
+      context: ./docker/piper
+      dockerfile: Dockerfile
+    container_name: jarvis-piper
+    restart: unless-stopped
+    volumes:
+      - piper_voices:/voices
+    ports:
+      - "5500:5500"
+
+  # ─── Gateway ──────────────────────────────────────────────────────────────────
+  gateway:
+    build:
+      context: ./gateway-server
+      dockerfile: Dockerfile
+    container_name: jarvis-gateway
+    restart: unless-stopped
+    environment:
+      - LLM_PROVIDER=ollama
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3.2
+      - OPENCLAW_URL=http://openclaw:8080
+      - WHISPER_URL=http://whisper:9000
+      - PIPER_URL=http://piper:5500
+      - PIPER_VOICE=pl_PL-darkman-medium
+    ports:
+      - "3000:3000"
+    depends_on:
+      - ollama
+      - whisper
+      - piper
+
+volumes:
+  ollama_data:
+  piper_voices:
