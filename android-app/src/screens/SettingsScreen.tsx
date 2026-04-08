@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ScrollView, Switch, ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { setGatewayUrl, getGatewayUrl, checkHealth, switchProvider } from '../services/api';
 
@@ -18,15 +19,27 @@ export default function SettingsScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const testConnection = async () => {
+    if (!gatewayInput.trim()) {
+      setError('Wprowadź adres serwera');
+      return;
+    }
+    
     setLoading(true);
     setError(null);
     try {
+      // Apply the URL first
       setGatewayUrl(gatewayInput);
+      // Update input field with formatted URL (e.g. adding http:// if missing)
+      const currentUrl = getGatewayUrl();
+      setGatewayInput(currentUrl);
+      
       const h = await checkHealth();
       setHealth(h);
       setUseOllama(h.llm === 'ollama');
+      Alert.alert('Sukces', 'Połączono z J.A.R.V.I.S Gateway');
     } catch (e: any) {
-      setError(e.message || 'Connection failed');
+      console.error('Connection test error:', e);
+      setError(e.message || 'Nie udało się nawiązać połączenia');
       setHealth(null);
     } finally {
       setLoading(false);
@@ -38,7 +51,7 @@ export default function SettingsScreen() {
     try {
       await switchProvider(value ? 'ollama' : 'openclaw');
     } catch (e: any) {
-      setError(e.message);
+      setError('Błąd zmiany silnika: ' + e.message);
     }
   };
 
@@ -48,16 +61,18 @@ export default function SettingsScreen() {
 
       {/* Gateway URL */}
       <View style={styles.section}>
-        <Text style={styles.label}>ADRES GATEWAY</Text>
+        <Text style={styles.label}>ADRES GATEWAY (HTTPS/HTTP)</Text>
         <TextInput
           style={styles.input}
           value={gatewayInput}
           onChangeText={setGatewayInput}
-          placeholder="http://192.168.1.100:3000"
+          placeholder="https://twoja-domena.pl"
           placeholderTextColor="#1a4466"
           autoCapitalize="none"
+          autoCorrect={false}
           keyboardType="url"
         />
+        <Text style={styles.hint}>Upewnij się, że używasz pełnego adresu z http:// lub https://</Text>
         <TouchableOpacity style={styles.btn} onPress={testConnection} disabled={loading}>
           {loading ? (
             <ActivityIndicator color={CYAN} size="small" />
@@ -104,7 +119,7 @@ export default function SettingsScreen() {
           STT: Whisper (lokalny Docker){'\n'}
           TTS: Piper PL (lokalny Docker){'\n'}
           Gateway: Node.js Fastify{'\n'}
-          Wersja: 1.0.0
+          Wersja: 1.0.1
         </Text>
       </View>
     </ScrollView>
@@ -133,6 +148,12 @@ const styles = StyleSheet.create({
     fontSize: 9,
     letterSpacing: 3,
     opacity: 0.7,
+  },
+  hint: {
+    color: '#446688',
+    fontSize: 10,
+    marginTop: -4,
+    marginBottom: 4,
   },
   input: {
     backgroundColor: PANEL,
