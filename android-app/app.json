@@ -5,9 +5,13 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "backgroundColor": "#000814",
+    "userInterfaceStyle": "dark",
     "splash": {
       "backgroundColor": "#000814"
     },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#000814"
