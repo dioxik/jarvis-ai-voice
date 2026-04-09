@@ -1,19 +1,38 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 /**
  * JARVIS API Service
  * Communicates with the gateway server for voice, chat, and config.
  */
 
-const DEFAULT_GATEWAY = 'http://localhost:3000'; // Default, change in settings if needed
+const STORAGE_KEY = '@jarvis_gateway_url';
+const DEFAULT_GATEWAY = 'http://192.168.1.100:3000';
 
 let gatewayUrl = DEFAULT_GATEWAY;
 
-export function setGatewayUrl(url: string) {
-  // Ensure URL has protocol and no trailing slash
+// Initialize from storage
+export async function initApi() {
+  try {
+    const saved = await AsyncStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      gatewayUrl = saved;
+    }
+  } catch (e) {
+    console.error('Failed to load gateway URL', e);
+  }
+}
+
+export async function setGatewayUrl(url: string) {
   let formatted = url.trim().replace(/\/$/, '');
   if (!formatted.startsWith('http')) {
     formatted = 'http://' + formatted;
   }
   gatewayUrl = formatted;
+  try {
+    await AsyncStorage.setItem(STORAGE_KEY, formatted);
+  } catch (e) {
+    console.error('Failed to save gateway URL', e);
+  }
 }
 
 export function getGatewayUrl() {
@@ -87,11 +106,8 @@ export async function sendVoiceMessage(
 ): Promise<VoiceResponse> {
   const formData = new FormData();
 
-  // Attach audio blob
-  const audioResponse = await fetch(audioUri);
-  const audioBlob = await audioResponse.blob();
-  
-  // Use 'audio' field as expected by gateway /voice route
+  // Use a more robust way to attach the file for React Native
+  // The 'audio' field must match what the gateway expects
   formData.append('audio', {
     uri: audioUri,
     name: 'recording.m4a',
@@ -105,6 +121,7 @@ export async function sendVoiceMessage(
     body: formData,
     headers: {
       'Accept': 'audio/wav',
+      // Do NOT set Content-Type header manually when using FormData in RN
     },
   });
 

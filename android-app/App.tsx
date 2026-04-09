@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StyleSheet, View, Text } from 'react-native';
 import MainScreen from './src/screens/MainScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import { initApi } from './src/services/api';
 
 const Tab = createBottomTabNavigator();
 
@@ -19,6 +20,10 @@ function TabIcon({ focused, label }: { focused: boolean; label: string }) {
 }
 
 export default function App() {
+  useEffect(() => {
+    initApi();
+  }, []);
+
   return (
     <NavigationContainer>
       <Tab.Navigator
