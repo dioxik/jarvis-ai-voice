@@ -6,6 +6,7 @@ import {
 import * as FileSystem from 'expo-file-system';
 import JarvisAnimation from '../components/JarvisAnimation';
 import { useVoice } from '../hooks/useVoice';
+import { useWakeWord } from '../hooks/useWakeWord';
 import { sendVoiceMessage, ChatMessage } from '../services/api';
 
 export default function MainScreen() {
@@ -16,16 +17,36 @@ export default function MainScreen() {
 
   const { state, amplitude, startRecording, stopRecording, playAudio, setState } = useVoice();
 
+  // ── Wake Word Integration ──────────────────────────────────────────────────
+  const onWake = useCallback(() => {
+    if (state === 'idle') {
+      startRecording(processVoice).catch(e => setError(e.message));
+    }
+  }, [state, startRecording]);
+
+  const { isListening: isWakeListening, startListening: startWake, stopListening: stopWake } = useWakeWord(onWake);
+
+  useEffect(() => {
+    if (handsFree && state === 'idle') {
+      startWake();
+    } else {
+      stopWake();
+    }
+  }, [handsFree, state, startWake, stopWake]);
+
   // ── Voice processing ───────────────────────────────────────────────────────
   const processVoice = useCallback(async () => {
     const uri = await stopRecording();
-    if (!uri) return;
+    if (!uri) {
+      // If no speech was detected (silence filter), just go back to idle
+      setState('idle');
+      return;
+    }
 
     try {
       setState('processing');
       const { audioBlob, transcript, responseText } = await sendVoiceMessage(uri, history);
 
-      // Add to chat history
       setHistory(prev => [
         ...prev,
         { role: 'user', content: transcript },
@@ -33,7 +54,6 @@ export default function MainScreen() {
       ]);
       scrollRef.current?.scrollToEnd({ animated: true });
 
-      // Save audio blob to temp file and play
       const tmpPath = `${FileSystem.cacheDirectory}jarvis_response_${Date.now()}.wav`;
       const reader = new FileReader();
       reader.onload = async () => {
@@ -42,13 +62,12 @@ export default function MainScreen() {
           encoding: FileSystem.EncodingType.Base64,
         });
         
-        // Play response and potentially restart recording if hands-free
         await playAudio(tmpPath, () => {
           if (handsFree) {
-            // Wait a bit before listening again to avoid hearing itself
+            // Wait a bit before listening again
             setTimeout(() => {
-              startRecording(processVoice);
-            }, 1000);
+              if (handsFree) startRecording(processVoice);
+            }, 800);
           }
         });
       };
@@ -59,10 +78,8 @@ export default function MainScreen() {
     }
   }, [state, history, stopRecording, playAudio, handsFree, startRecording, setState]);
 
-  // ── Voice button handler ───────────────────────────────────────────────────
   const handleVoicePress = useCallback(async () => {
     setError(null);
-
     if (state === 'recording') {
       await processVoice();
     } else if (state === 'idle') {
@@ -72,7 +89,7 @@ export default function MainScreen() {
 
   const modeLabel = {
     idle: handsFree ? 'Nasłuchuję "Jarvis"...' : 'Naciśnij i mów',
-    recording: 'Słucham... (cisza zakończy)',
+    recording: 'Słucham...',
     processing: 'Przetwarzam...',
     playing: 'Odpowiadam...',
     listening: 'Oczekiwanie...',
@@ -82,18 +99,15 @@ export default function MainScreen() {
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor="#000814" />
 
-      {/* Top header */}
       <View style={styles.header}>
         <Text style={styles.headerText}>J.A.R.V.I.S</Text>
         <Text style={styles.headerSub}>AI VOICE ASSISTANT</Text>
       </View>
 
-      {/* Animated JARVIS orb */}
       <View style={styles.orbContainer}>
         <JarvisAnimation mode={state === 'listening' ? 'idle' : state as any} amplitude={amplitude} size={300} />
       </View>
 
-      {/* Status */}
       <View style={styles.statusBar}>
         {state === 'processing' && (
           <ActivityIndicator size="small" color="#00d4ff" style={{ marginRight: 8 }} />
@@ -101,14 +115,12 @@ export default function MainScreen() {
         <Text style={styles.statusText}>{modeLabel}</Text>
       </View>
 
-      {/* Error */}
       {error && (
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>⚠ {error}</Text>
         </View>
       )}
 
-      {/* Chat history */}
       <ScrollView
         ref={scrollRef}
         style={styles.chatScroll}
@@ -131,7 +143,6 @@ export default function MainScreen() {
         ))}
       </ScrollView>
 
-      {/* Voice button */}
       <View style={styles.controls}>
         <TouchableOpacity
           style={[

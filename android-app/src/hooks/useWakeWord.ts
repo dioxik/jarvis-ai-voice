@@ -4,7 +4,6 @@ import { Audio } from 'expo-av';
 /**
  * JARVIS Wake Word Hook
  * Simple implementation using amplitude detection and continuous listening.
- * In a production app, this would use a dedicated engine like Porcupine.
  */
 export function useWakeWord(onWake: () => void) {
   const [isListening, setIsListening] = useState(false);
@@ -12,7 +11,8 @@ export function useWakeWord(onWake: () => void) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   // Threshold for "Jarvis" detection (simplified for now)
-  const WAKE_THRESHOLD = 0.4; 
+  // Lowered for better sensitivity
+  const WAKE_THRESHOLD = 0.35; 
 
   const startListening = useCallback(async () => {
     try {
@@ -44,13 +44,15 @@ export function useWakeWord(onWake: () => void) {
             const norm = Math.max(0, (status.metering + 60) / 60);
             if (norm > WAKE_THRESHOLD) {
               // Potential wake word detected
-              // In a real app, we'd process the audio buffer here
-              stopListening();
+              // We stop listening immediately to let the main voice hook take over
+              await stopListening();
               onWake();
             }
           }
-        } catch {}
-      }, 150);
+        } catch (e) {
+          console.error('Wake word polling error:', e);
+        }
+      }, 100);
     } catch (e) {
       console.error('Wake word listener error:', e);
     }

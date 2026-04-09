@@ -22,8 +22,10 @@ export function useVoice(): UseVoiceReturn {
   
   // VAD (Voice Activity Detection) refs
   const silenceStart = useRef<number | null>(null);
-  const SILENCE_THRESHOLD = 0.15; // Amplitude threshold for silence
-  const SILENCE_DURATION = 1500;  // 1.5 seconds of silence to trigger auto-stop
+  const hasSpoken = useRef<boolean>(false); // Track if user actually said something
+  const SILENCE_THRESHOLD = 0.12; // Amplitude threshold for silence
+  const VOICE_THRESHOLD = 0.20;   // Threshold to consider it "speech"
+  const SILENCE_DURATION = 1800;  // 1.8 seconds of silence to trigger auto-stop
 
   const startRecording = useCallback(async (onSilence?: () => void) => {
     // Request permissions
@@ -54,20 +56,24 @@ export function useVoice(): UseVoiceReturn {
     recordingRef.current = recording;
     setState('recording');
     silenceStart.current = null;
+    hasSpoken.current = false;
 
     // Poll amplitude for visualizer and VAD
     meterInterval.current = setInterval(async () => {
       try {
         const status = await recording.getStatusAsync();
         if (status.isRecording && status.metering !== undefined) {
-          // metering is in dBFS: -160 (silence) to 0 (max)
-          // Map -60dB to 0 and 0dB to 1
           const norm = Math.max(0, (status.metering + 60) / 60);
           const currentAmp = Math.min(1, norm);
           setAmplitude(currentAmp);
 
           // VAD Logic
-          if (onSilence) {
+          if (currentAmp > VOICE_THRESHOLD) {
+            hasSpoken.current = true;
+            silenceStart.current = null;
+          }
+
+          if (onSilence && hasSpoken.current) {
             if (currentAmp < SILENCE_THRESHOLD) {
               if (silenceStart.current === null) {
                 silenceStart.current = Date.now();
@@ -78,7 +84,6 @@ export function useVoice(): UseVoiceReturn {
                 onSilence();
               }
             } else {
-              // Voice detected, reset silence timer
               silenceStart.current = null;
             }
           }
@@ -102,20 +107,25 @@ export function useVoice(): UseVoiceReturn {
       await recordingRef.current.stopAndUnloadAsync();
       const uri = recordingRef.current.getURI();
       recordingRef.current = null;
+      
+      // Only return URI if user actually spoke
+      if (!hasSpoken.current) {
+        setState('idle');
+        return null;
+      }
+
       setState('processing');
       return uri || null;
     } catch (e) {
       console.error('Stop recording error:', e);
+      setState('idle');
       return null;
     }
   }, []);
 
   const playAudio = useCallback(async (uri: string, onDone?: () => void) => {
-    // Stop any existing playback
     if (soundRef.current) {
-      try {
-        await soundRef.current.unloadAsync();
-      } catch {}
+      try { await soundRef.current.unloadAsync(); } catch {}
       soundRef.current = null;
     }
 
@@ -157,7 +167,6 @@ export function useVoice(): UseVoiceReturn {
     setState('idle');
   }, []);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (meterInterval.current) clearInterval(meterInterval.current);
