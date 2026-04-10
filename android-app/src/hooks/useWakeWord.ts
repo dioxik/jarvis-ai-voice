@@ -1,18 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Audio } from 'expo-av';
 
-/**
- * JARVIS Wake Word Hook
- * Simple implementation using amplitude detection and continuous listening.
- */
 export function useWakeWord(onWake: () => void) {
   const [isListening, setIsListening] = useState(false);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
-  // Threshold for "Jarvis" detection (simplified for now)
-  // Lowered for better sensitivity
-  const WAKE_THRESHOLD = 0.35; 
+  const WAKE_THRESHOLD = 0.30; // Increased sensitivity
 
   const startListening = useCallback(async () => {
     try {
@@ -36,15 +30,12 @@ export function useWakeWord(onWake: () => void) {
       recordingRef.current = recording;
       setIsListening(true);
 
-      // Poll for wake word (simplified amplitude detection)
       intervalRef.current = setInterval(async () => {
         try {
           const status = await recording.getStatusAsync();
           if (status.isRecording && status.metering !== undefined) {
             const norm = Math.max(0, (status.metering + 60) / 60);
             if (norm > WAKE_THRESHOLD) {
-              // Potential wake word detected
-              // We stop listening immediately to let the main voice hook take over
               await stopListening();
               onWake();
             }

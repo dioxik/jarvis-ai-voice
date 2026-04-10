@@ -5,9 +5,9 @@ export type RecordingState = 'idle' | 'recording' | 'processing' | 'playing' | '
 
 interface UseVoiceReturn {
   state: RecordingState;
-  amplitude: number;         // 0–1, for visualizer
+  amplitude: number;
   startRecording: (onSilence?: () => void) => Promise<void>;
-  stopRecording: () => Promise<string | null>;  // returns URI
+  stopRecording: () => Promise<string | null>;
   playAudio: (uri: string, onDone?: () => void) => Promise<void>;
   stopPlayback: () => Promise<void>;
   setState: (state: RecordingState) => void;
@@ -20,15 +20,13 @@ export function useVoice(): UseVoiceReturn {
   const soundRef = useRef<Audio.Sound | null>(null);
   const meterInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   
-  // VAD (Voice Activity Detection) refs
   const silenceStart = useRef<number | null>(null);
-  const hasSpoken = useRef<boolean>(false); // Track if user actually said something
-  const SILENCE_THRESHOLD = 0.12; // Amplitude threshold for silence
-  const VOICE_THRESHOLD = 0.20;   // Threshold to consider it "speech"
+  const hasSpoken = useRef<boolean>(false);
+  const SILENCE_THRESHOLD = 0.15; // Adjusted for better sensitivity
+  const VOICE_THRESHOLD = 0.25;   // Threshold to consider it "speech"
   const SILENCE_DURATION = 1800;  // 1.8 seconds of silence to trigger auto-stop
 
   const startRecording = useCallback(async (onSilence?: () => void) => {
-    // Request permissions
     const { granted } = await Audio.requestPermissionsAsync();
     if (!granted) throw new Error('Microphone permission denied');
 
@@ -58,7 +56,6 @@ export function useVoice(): UseVoiceReturn {
     silenceStart.current = null;
     hasSpoken.current = false;
 
-    // Poll amplitude for visualizer and VAD
     meterInterval.current = setInterval(async () => {
       try {
         const status = await recording.getStatusAsync();
@@ -67,7 +64,6 @@ export function useVoice(): UseVoiceReturn {
           const currentAmp = Math.min(1, norm);
           setAmplitude(currentAmp);
 
-          // VAD Logic
           if (currentAmp > VOICE_THRESHOLD) {
             hasSpoken.current = true;
             silenceStart.current = null;
@@ -78,7 +74,6 @@ export function useVoice(): UseVoiceReturn {
               if (silenceStart.current === null) {
                 silenceStart.current = Date.now();
               } else if (Date.now() - silenceStart.current > SILENCE_DURATION) {
-                // Silence detected for long enough
                 clearInterval(meterInterval.current!);
                 meterInterval.current = null;
                 onSilence();
@@ -108,7 +103,6 @@ export function useVoice(): UseVoiceReturn {
       const uri = recordingRef.current.getURI();
       recordingRef.current = null;
       
-      // Only return URI if user actually spoke
       if (!hasSpoken.current) {
         setState('idle');
         return null;
