@@ -22,9 +22,9 @@ export function useVoice(): UseVoiceReturn {
   
   const silenceStart = useRef<number | null>(null);
   const hasSpoken = useRef<boolean>(false);
-  const SILENCE_THRESHOLD = 0.15; // Adjusted for better sensitivity
-  const VOICE_THRESHOLD = 0.25;   // Threshold to consider it "speech"
-  const SILENCE_DURATION = 1800;  // 1.8 seconds of silence to trigger auto-stop
+  const SILENCE_THRESHOLD = 0.15; 
+  const VOICE_THRESHOLD = 0.25;   
+  const SILENCE_DURATION = 1800;  
 
   const startRecording = useCallback(async (onSilence?: () => void) => {
     const { granted } = await Audio.requestPermissionsAsync();
