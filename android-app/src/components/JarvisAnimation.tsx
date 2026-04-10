@@ -1,211 +1,182 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import Svg, { Circle, G, Line, Defs, RadialGradient, Stop } from 'react-native-svg';
-import Animated, {
-  useAnimatedProps,
-  useSharedValue,
-  withSpring,
-  withRepeat,
-  withTiming,
-  Easing,
-  useDerivedValue,
-} from 'react-native-reanimated';
+import {
+  Canvas,
+  Circle,
+  Group,
+  Line,
+  vec,
+  RadialGradient,
+  useComputedValue,
+  useValue,
+  useFrame,
+  Skia,
+  Paint,
+  BlurMask,
+} from '@shopify/react-native-skia';
 
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-const AnimatedLine = Animated.createAnimatedComponent(Line);
-const AnimatedG = Animated.createAnimatedComponent(G);
-
-const N = 100; // Optimized for SVG performance in Expo Go
-const MAX_LINES = 60;
-const MAX_ELECTRONS = 15;
-
-interface ParticleData {
-  id: number;
-  angle: number;
-  phi: number;
-  speed: number;
-  size: number;
+interface JarvisAnimationProps {
+  mode: 'idle' | 'recording' | 'processing' | 'playing';
+  amplitude: number;
+  size?: number;
 }
 
-const Particle = ({ data, amplitude, mode, rotation }: { 
-  data: ParticleData, 
-  amplitude: Animated.SharedValue<number>, 
-  mode: string,
-  rotation: Animated.SharedValue<number>
-}) => {
-  const phase = useSharedValue(Math.random() * Math.PI * 2);
+const N = 1200; // High density for mobile
+const MAX_LINES = 100;
+const MAX_ELECTRONS = 30;
+const LINE_DIST = 40;
 
-  useEffect(() => {
-    phase.value = withRepeat(
-      withTiming(phase.value + Math.PI * 2, {
-        duration: 4000 / data.speed,
-        easing: Easing.linear,
-      }),
-      -1,
-      false
-    );
-  }, []);
+export default function JarvisAnimation({ mode, amplitude, size = 300 }: JarvisAnimationProps) {
+  const centerX = size / 2;
+  const centerY = size / 2;
 
-  const animatedProps = useAnimatedProps(() => {
-    let r = 75 + Math.sin(phase.value) * 8;
-    
-    if (mode === 'recording') {
-      r += amplitude.value * 60 * Math.sin(phase.value * 2 + data.id);
-    } else if (mode === 'playing') {
-      r += Math.sin(phase.value * 4) * 12;
-    } else if (mode === 'processing') {
-      r = 45 + Math.sin(phase.value * 8) * 6;
-    }
-
-    const x = 150 + r * Math.cos(data.angle + rotation.value * data.speed * 0.02) * Math.sin(data.phi);
-    const y = 150 + r * Math.sin(data.angle + rotation.value * data.speed * 0.02) * Math.sin(data.phi);
-
-    return {
-      cx: x,
-      cy: y,
-      r: data.size * (mode === 'recording' ? 1 + amplitude.value * 0.5 : 1),
-      opacity: mode === 'processing' ? 0.4 : 0.7 + Math.sin(phase.value) * 0.2,
-    };
-  });
-
-  return <AnimatedCircle animatedProps={animatedProps} fill="#00d4ff" />;
-};
-
-const Electron = ({ p1, p2, rotation, mode }: { p1: ParticleData, p2: ParticleData, rotation: Animated.SharedValue<number>, mode: string }) => {
-  const t = useSharedValue(Math.random());
-  
-  useEffect(() => {
-    t.value = withRepeat(
-      withTiming(1, { duration: 800 + Math.random() * 1200, easing: Easing.bezier(0.4, 0, 0.2, 1) }),
-      -1,
-      false
-    );
-  }, []);
-
-  const animatedProps = useAnimatedProps(() => {
-    const r1 = 75;
-    const r2 = 75;
-    
-    const x1 = 150 + r1 * Math.cos(p1.angle + rotation.value * p1.speed * 0.02) * Math.sin(p1.phi);
-    const y1 = 150 + r1 * Math.sin(p1.angle + rotation.value * p1.speed * 0.02) * Math.sin(p1.phi);
-    
-    const x2 = 150 + r2 * Math.cos(p2.angle + rotation.value * p2.speed * 0.02) * Math.sin(p2.phi);
-    const y2 = 150 + r2 * Math.sin(p2.angle + rotation.value * p2.speed * 0.02) * Math.sin(p2.phi);
-
-    return {
-      cx: x1 + (x2 - x1) * t.value,
-      cy: y1 + (y2 - y1) * t.value,
-      r: 1.5,
-      opacity: mode === 'processing' ? 0.9 : 0.6,
-    };
-  });
-
-  return <AnimatedCircle animatedProps={animatedProps} fill="#ffffff" />;
-};
-
-export default function JarvisAnimation({ mode, amplitude, size = 300 }: { 
-  mode: 'idle' | 'recording' | 'processing' | 'playing', 
-  amplitude: number, 
-  size?: number 
-}) {
-  const ampShared = useSharedValue(0);
-  const rotation = useSharedValue(0);
-
-  useEffect(() => {
-    ampShared.value = withSpring(amplitude, { damping: 15, stiffness: 150 });
-  }, [amplitude]);
-
-  useEffect(() => {
-    rotation.value = withRepeat(
-      withTiming(360, { duration: 25000, easing: Easing.linear }),
-      -1,
-      false
-    );
-  }, []);
-
+  // --- Particle Setup ---
   const particles = useMemo(() => {
-    return Array.from({ length: N }).map((_, i) => ({
-      id: i,
-      angle: Math.random() * Math.PI * 2,
-      phi: Math.acos(2 * Math.random() - 1),
-      speed: 0.6 + Math.random() * 1.4,
-      size: 0.8 + Math.random() * 1.5,
+    return Array.from({ length: N }).map(() => ({
+      x: (Math.random() - 0.5) * 2,
+      y: (Math.random() - 0.5) * 2,
+      z: (Math.random() - 0.5) * 2,
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.2 + Math.random() * 0.8,
     }));
   }, []);
 
   const electrons = useMemo(() => {
-    return Array.from({ length: MAX_ELECTRONS }).map((_, i) => ({
-      id: i,
-      p1: particles[Math.floor(Math.random() * N)],
-      p2: particles[Math.floor(Math.random() * N)],
+    return Array.from({ length: MAX_ELECTRONS }).map(() => ({
+      p1: Math.floor(Math.random() * N),
+      p2: Math.floor(Math.random() * N),
+      t: Math.random(),
+      speed: 0.01 + Math.random() * 0.03,
     }));
-  }, [particles]);
+  }, []);
+
+  // --- Animation Values ---
+  const rotation = useValue(0);
+  const ampValue = useValue(0);
+  const radiusValue = useValue(80);
+
+  useFrame((t) => {
+    rotation.current += 0.005;
+    ampValue.current = amplitude;
+
+    // Smooth radius transition
+    let targetR = 80;
+    if (mode === 'recording') targetR = 80 + amplitude * 70;
+    else if (mode === 'playing') targetR = 90 + Math.sin(t / 200) * 10;
+    else if (mode === 'processing') targetR = 50 + Math.sin(t / 100) * 5;
+    
+    radiusValue.current = radiusValue.current + (targetR - radiusValue.current) * 0.1;
+  });
+
+  // --- Projected Points ---
+  const projectedPoints = useComputedValue(() => {
+    const r = radiusValue.current;
+    const rot = rotation.current;
+    return particles.map(p => {
+      // 3D Rotation
+      const x1 = p.x * Math.cos(rot) - p.z * Math.sin(rot);
+      const z1 = p.x * Math.sin(rot) + p.z * Math.cos(rot);
+      const y1 = p.y * Math.cos(rot * 0.5) - z1 * Math.sin(rot * 0.5);
+      const z2 = p.y * Math.sin(rot * 0.5) + z1 * Math.cos(rot * 0.5);
+
+      return {
+        x: centerX + x1 * r,
+        y: centerY + y1 * r,
+        z: z2,
+        opacity: (z2 + 1) / 2 * 0.6
+      };
+    });
+  }, [rotation, radiusValue]);
 
   return (
     <View style={[styles.container, { width: size, height: size }]}>
-      <Svg viewBox="0 0 300 300" width={size} height={size}>
-        <Defs>
-          <RadialGradient id="coreGrad" cx="50%" cy="50%" r="50%">
-            <Stop offset="0%" stopColor="#00d4ff" stopOpacity="0.9" />
-            <Stop offset="100%" stopColor="#00d4ff" stopOpacity="0" />
-          </RadialGradient>
-        </Defs>
-
+      <Canvas style={{ width: size, height: size }}>
         {/* Background Glow */}
-        <Circle cx="150" cy="150" r="110" fill="url(#coreGrad)" opacity="0.15" />
+        <Circle cx={centerX} cy={centerY} r={120}>
+          <RadialGradient
+            c={vec(centerX, centerY)}
+            r={120}
+            colors={['rgba(0, 212, 255, 0.2)', 'transparent']}
+          />
+        </Circle>
 
-        {/* Rotating Outer Rings */}
-        <AnimatedG style={{ transform: [{ rotate: rotation.value + 'deg' }] }} origin="150, 150">
-          <Circle cx="150" cy="150" r="145" stroke="#00d4ff" strokeWidth="0.3" strokeDasharray="4 12" opacity="0.25" />
-          <Circle cx="150" cy="150" r="125" stroke="#00d4ff" strokeWidth="0.15" opacity="0.15" />
-        </AnimatedG>
+        {/* Particles */}
+        {projectedPoints.current.map((p, i) => (
+          <Circle
+            key={`p-${i}`}
+            cx={p.x}
+            cy={p.y}
+            r={0.8}
+            color="#00d4ff"
+            opacity={p.opacity}
+          />
+        ))}
 
-        {/* Connection Lines (Sampled for performance) */}
-        {particles.slice(0, MAX_LINES).map((p, i) => {
-          const nextP = particles[(i + 1) % N];
+        {/* Lines (Sampled for performance) */}
+        {Array.from({ length: MAX_LINES }).map((_, idx) => {
+          const i = (idx * 7) % N;
+          const j = (i + 13) % N;
+          const p1 = projectedPoints.current[i];
+          const p2 = projectedPoints.current[j];
+          
+          const dx = p1.x - p2.x;
+          const dy = p1.y - p2.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          
+          if (dist > LINE_DIST) return null;
+          
           return (
-            <AnimatedLine
-              key={`line-${i}`}
-              x1={150} y1={150} x2={150} y2={150} // Placeholder, logic in props
-              stroke="#00d4ff"
-              strokeWidth="0.2"
-              opacity={0.1}
-              animatedProps={useAnimatedProps(() => {
-                const r = 75;
-                const x1 = 150 + r * Math.cos(p.angle + rotation.value * p.speed * 0.02) * Math.sin(p.phi);
-                const y1 = 150 + r * Math.sin(p.angle + rotation.value * p.speed * 0.02) * Math.sin(p.phi);
-                const x2 = 150 + r * Math.cos(nextP.angle + rotation.value * nextP.speed * 0.02) * Math.sin(nextP.phi);
-                const y2 = 150 + r * Math.sin(nextP.angle + rotation.value * nextP.speed * 0.02) * Math.sin(nextP.phi);
-                return { x1, y1, x2, y2 };
-              })}
+            <Line
+              key={`l-${idx}`}
+              p1={vec(p1.x, p1.y)}
+              p2={vec(p2.x, p2.y)}
+              color="#00d4ff"
+              strokeWidth={0.3}
+              opacity={(1 - dist / LINE_DIST) * 0.2}
             />
           );
         })}
 
-        {/* Particles */}
-        {particles.map(p => (
-          <Particle key={`p-${p.id}`} data={p} amplitude={ampShared} mode={mode} rotation={rotation} />
-        ))}
-
         {/* Electrons */}
-        {electrons.map(e => (
-          <Electron key={`e-${e.id}`} p1={e.p1} p2={e.p2} rotation={rotation} mode={mode} />
-        ))}
+        {electrons.map((e, i) => {
+          const p1 = projectedPoints.current[e.p1];
+          const p2 = projectedPoints.current[e.p2];
+          
+          // Update electron position in frame would be better, but this is a start
+          const ex = p1.x + (p2.x - p1.x) * e.t;
+          const ey = p1.y + (p2.y - p1.y) * e.t;
+
+          return (
+            <Circle
+              key={`e-${i}`}
+              cx={ex}
+              cy={ey}
+              r={1.2}
+              color="#ffffff"
+              opacity={0.8}
+            />
+          );
+        })}
 
         {/* Core */}
-        <AnimatedCircle
-          cx="150"
-          cy="150"
-          r={mode === 'processing' ? 28 : 38}
-          fill="url(#coreGrad)"
-          opacity={0.7}
-        />
-        <Circle cx="150" cy="150" r="12" fill="#00d4ff" />
-      </Svg>
+        <Circle cx={centerX} cy={centerY} r={40}>
+          <RadialGradient
+            c={vec(centerX, centerY)}
+            r={40}
+            colors={['rgba(0, 212, 255, 0.6)', 'transparent']}
+          />
+          <BlurMask blur={10} style="normal" />
+        </Circle>
+        <Circle cx={centerX} cy={centerY} r={12} color="#00d4ff" />
+      </Canvas>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { alignItems: 'center', justifyContent: 'center' },
+  container: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
 });

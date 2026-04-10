@@ -1,13 +1,19 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
-  StyleSheet, StatusBar, ActivityIndicator, Alert,
+  StyleSheet, StatusBar, ActivityIndicator,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import JarvisAnimation from '../components/JarvisAnimation';
 import { useVoice } from '../hooks/useVoice';
 import { useWakeWord } from '../hooks/useWakeWord';
 import { sendVoiceMessage, ChatMessage } from '../services/api';
+import { logger } from '../services/logger';
+
+const CYAN = '#00d4ff';
+const BG = '#000814';
+const PANEL = '#020f1e';
+const BORDER = '#0a2a44';
 
 export default function MainScreen() {
   const [history, setHistory] = useState<ChatMessage[]>([]);
@@ -17,12 +23,21 @@ export default function MainScreen() {
 
   const { state, amplitude, startRecording, stopRecording, playAudio, setState } = useVoice();
 
+  // Auto-dismiss error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
   // ── Wake Word Integration ──────────────────────────────────────────────────
   const onWake = useCallback(() => {
     if (state === 'idle') {
-      startRecording(processVoice).catch(e => setError(e.message));
+      logger.log('Wykryto słowo kluczowe: JARVIS', 'info');
+      handleStart();
     }
-  }, [state, startRecording]);
+  }, [state]);
 
   const { isListening: isWakeListening, startListening: startWake, stopListening: stopWake } = useWakeWord(onWake);
 
@@ -38,13 +53,14 @@ export default function MainScreen() {
   const processVoice = useCallback(async () => {
     const uri = await stopRecording();
     if (!uri) {
-      // If no speech was detected (silence filter), just go back to idle
+      logger.log('Nie wykryto mowy, powrót do trybu czuwania', 'info');
       setState('idle');
       return;
     }
 
     try {
       setState('processing');
+      logger.log('Przesyłanie nagrania do serwera...', 'info');
       const { audioBlob, transcript, responseText } = await sendVoiceMessage(uri, history);
 
       setHistory(prev => [
@@ -53,6 +69,7 @@ export default function MainScreen() {
         { role: 'assistant', content: responseText },
       ]);
       scrollRef.current?.scrollToEnd({ animated: true });
+      logger.log('Otrzymano odpowiedź: ' + responseText, 'info');
 
       const tmpPath = `${FileSystem.cacheDirectory}jarvis_response_${Date.now()}.wav`;
       const reader = new FileReader();
@@ -64,28 +81,40 @@ export default function MainScreen() {
         
         await playAudio(tmpPath, () => {
           if (handsFree) {
-            // Wait a bit before listening again
+            logger.log('Tryb Hands-free: powrót do nasłuchiwania', 'info');
             setTimeout(() => {
-              if (handsFree) startRecording(processVoice);
+              if (handsFree) handleStart();
             }, 800);
           }
         });
       };
       reader.readAsDataURL(audioBlob);
     } catch (e: any) {
-      setError(e.message || 'Connection error');
+      const msg = e.message || 'Błąd połączenia';
+      setError(msg);
+      logger.log('Błąd API: ' + msg, 'error');
       setState('idle');
     }
-  }, [state, history, stopRecording, playAudio, handsFree, startRecording, setState]);
+  }, [state, history, stopRecording, playAudio, handsFree, setState]);
+
+  const handleStart = async () => {
+    setError(null);
+    try {
+      await startRecording(processVoice);
+    } catch (e: any) {
+      const msg = e.message || 'Błąd mikrofonu';
+      setError(msg);
+      logger.log('Błąd nagrywania: ' + msg, 'error');
+    }
+  };
 
   const handleVoicePress = useCallback(async () => {
-    setError(null);
     if (state === 'recording') {
       await processVoice();
     } else if (state === 'idle') {
-      await startRecording(processVoice).catch(e => setError(e.message));
+      await handleStart();
     }
-  }, [state, startRecording, processVoice]);
+  }, [state, processVoice]);
 
   const modeLabel = {
     idle: handsFree ? 'Nasłuchuję "Jarvis"...' : 'Naciśnij i mów',
@@ -97,11 +126,11 @@ export default function MainScreen() {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor="#000814" />
+      <StatusBar barStyle="light-content" backgroundColor={BG} />
 
       <View style={styles.header}>
         <Text style={styles.headerText}>J.A.R.V.I.S</Text>
-        <Text style={styles.headerSub}>AI VOICE ASSISTANT</Text>
+        <Text style={styles.headerSub}>SYSTEM ACTIVE</Text>
       </View>
 
       <View style={styles.orbContainer}>
@@ -110,13 +139,13 @@ export default function MainScreen() {
 
       <View style={styles.statusBar}>
         {state === 'processing' && (
-          <ActivityIndicator size="small" color="#00d4ff" style={{ marginRight: 8 }} />
+          <ActivityIndicator size="small" color={CYAN} style={{ marginRight: 8 }} />
         )}
         <Text style={styles.statusText}>{modeLabel}</Text>
       </View>
 
       {error && (
-        <View style={styles.errorBox}>
+        <View style={styles.errorToast}>
           <Text style={styles.errorText}>⚠ {error}</Text>
         </View>
       )}
@@ -162,7 +191,10 @@ export default function MainScreen() {
         <View style={styles.bottomRow}>
           <TouchableOpacity
             style={[styles.modeBtn, handsFree && styles.modeBtnActive]}
-            onPress={() => setHandsFree(!handsFree)}
+            onPress={() => {
+              setHandsFree(!handsFree);
+              logger.log('Tryb Hands-free: ' + (!handsFree ? 'WŁĄCZONY' : 'WYŁĄCZONY'), 'info');
+            }}
           >
             <Text style={styles.modeBtnText}>HANDS-FREE: {handsFree ? 'ON' : 'OFF'}</Text>
           </TouchableOpacity>
@@ -181,11 +213,6 @@ export default function MainScreen() {
   );
 }
 
-const CYAN = '#00d4ff';
-const BG = '#000814';
-const PANEL = '#020f1e';
-const BORDER = '#0a2a44';
-
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG, alignItems: 'center' },
   header: { paddingTop: 52, paddingBottom: 8, alignItems: 'center' },
@@ -194,14 +221,26 @@ const styles = StyleSheet.create({
   orbContainer: { marginVertical: 12 },
   statusBar: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   statusText: { color: CYAN, fontSize: 11, letterSpacing: 2, opacity: 0.7 },
-  errorBox: { backgroundColor: '#1a0000', borderColor: '#ff4444', borderWidth: 0.5, borderRadius: 8, paddingHorizontal: 16, paddingVertical: 8, marginHorizontal: 20, marginBottom: 8 },
-  errorText: { color: '#ff6666', fontSize: 12 },
+  errorToast: {
+    position: 'absolute',
+    top: 120,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(255, 0, 0, 0.85)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+    zIndex: 1000,
+    borderColor: '#ff4444',
+    borderWidth: 1,
+  },
+  errorText: { color: '#fff', fontSize: 12, textAlign: 'center', fontWeight: 'bold' },
   chatScroll: { flex: 1, width: '100%' },
   chatContent: { paddingHorizontal: 16, paddingBottom: 16, gap: 8 },
   emptyText: { color: CYAN, opacity: 0.25, fontSize: 12, letterSpacing: 2, textAlign: 'center', marginTop: 20 },
   bubble: { borderRadius: 12, padding: 12, maxWidth: '90%', borderWidth: 0.5 },
   bubbleUser: { alignSelf: 'flex-end', backgroundColor: '#001a2e', borderColor: BORDER },
-  bubbleAssistant: { alignSelf: 'flex-start', backgroundColor: PANEL, borderColor: CYAN, borderWidth: 0.5, shadowColor: CYAN, shadowOpacity: 0.1, shadowRadius: 8 },
+  bubbleAssistant: { alignSelf: 'flex-start', backgroundColor: PANEL, borderColor: CYAN, borderWidth: 0.5 },
   bubbleRole: { color: CYAN, fontSize: 9, letterSpacing: 3, opacity: 0.6, marginBottom: 4 },
   bubbleText: { color: '#c8e8f0', fontSize: 14, lineHeight: 20 },
   controls: { width: '100%', alignItems: 'center', paddingBottom: 36, paddingTop: 12, gap: 12 },

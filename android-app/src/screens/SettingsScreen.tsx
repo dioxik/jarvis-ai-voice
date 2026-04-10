@@ -5,6 +5,7 @@ import {
   Alert,
 } from 'react-native';
 import { setGatewayUrl, getGatewayUrl, checkHealth, switchProvider } from '../services/api';
+import { logger, LogEntry } from '../services/logger';
 
 const CYAN = '#00d4ff';
 const BG = '#000814';
@@ -17,6 +18,12 @@ export default function SettingsScreen() {
   const [loading, setLoading] = useState(false);
   const [useOllama, setUseOllama] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+
+  useEffect(() => {
+    const unsubscribe = logger.subscribe(setLogs);
+    return () => unsubscribe();
+  }, []);
 
   const testConnection = async () => {
     if (!gatewayInput.trim()) {
@@ -27,19 +34,18 @@ export default function SettingsScreen() {
     setLoading(true);
     setError(null);
     try {
-      // Apply the URL first
       setGatewayUrl(gatewayInput);
-      // Update input field with formatted URL (e.g. adding http:// if missing)
       const currentUrl = getGatewayUrl();
       setGatewayInput(currentUrl);
       
       const h = await checkHealth();
       setHealth(h);
       setUseOllama(h.llm === 'ollama');
-      Alert.alert('Sukces', 'Połączono z J.A.R.V.I.S Gateway');
+      logger.log('Połączono z serwerem: ' + currentUrl, 'info');
     } catch (e: any) {
-      console.error('Connection test error:', e);
-      setError(e.message || 'Nie udało się nawiązać połączenia');
+      const msg = e.message || 'Nie udało się nawiązać połączenia';
+      setError(msg);
+      logger.log('Błąd połączenia: ' + msg, 'error');
       setHealth(null);
     } finally {
       setLoading(false);
@@ -50,8 +56,9 @@ export default function SettingsScreen() {
     setUseOllama(value);
     try {
       await switchProvider(value ? 'ollama' : 'openclaw');
+      logger.log('Zmieniono silnik na: ' + (value ? 'Ollama' : 'OpenClaw'), 'info');
     } catch (e: any) {
-      setError('Błąd zmiany silnika: ' + e.message);
+      logger.log('Błąd zmiany silnika: ' + e.message, 'error');
     }
   };
 
@@ -72,7 +79,6 @@ export default function SettingsScreen() {
           autoCorrect={false}
           keyboardType="url"
         />
-        <Text style={styles.hint}>Upewnij się, że używasz pełnego adresu z http:// lub https://</Text>
         <TouchableOpacity style={styles.btn} onPress={testConnection} disabled={loading}>
           {loading ? (
             <ActivityIndicator color={CYAN} size="small" />
@@ -112,15 +118,28 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      {/* Info */}
+      {/* Debug Logs */}
       <View style={styles.section}>
-        <Text style={styles.label}>INFORMACJE</Text>
-        <Text style={styles.infoText}>
-          STT: Whisper (lokalny Docker){'\n'}
-          TTS: Piper PL (lokalny Docker){'\n'}
-          Gateway: Node.js Fastify{'\n'}
-          Wersja: 1.0.1
-        </Text>
+        <View style={styles.row}>
+          <Text style={styles.label}>DEBUG LOGS</Text>
+          <TouchableOpacity onPress={() => logger.clear()}>
+            <Text style={styles.clearText}>WYCZYŚĆ</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.logContainer}>
+          {logs.length === 0 ? (
+            <Text style={styles.emptyLog}>Brak logów.</Text>
+          ) : (
+            logs.map((log, i) => (
+              <View key={i} style={styles.logEntry}>
+                <Text style={styles.logTime}>[{log.timestamp}]</Text>
+                <Text style={[styles.logMessage, log.level === 'error' && styles.logError]}>
+                  {log.message}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
       </View>
     </ScrollView>
   );
@@ -129,32 +148,9 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
   content: { padding: 24, paddingTop: 60, gap: 24 },
-  title: {
-    color: CYAN,
-    fontSize: 16,
-    letterSpacing: 6,
-    fontWeight: '300',
-    marginBottom: 8,
-  },
-  section: {
-    borderColor: BORDER,
-    borderWidth: 0.5,
-    borderRadius: 12,
-    padding: 16,
-    gap: 12,
-  },
-  label: {
-    color: CYAN,
-    fontSize: 9,
-    letterSpacing: 3,
-    opacity: 0.7,
-  },
-  hint: {
-    color: '#446688',
-    fontSize: 10,
-    marginTop: -4,
-    marginBottom: 4,
-  },
+  title: { color: CYAN, fontSize: 16, letterSpacing: 6, fontWeight: '300', marginBottom: 8 },
+  section: { borderColor: BORDER, borderWidth: 0.5, borderRadius: 12, padding: 16, gap: 12 },
+  label: { color: CYAN, fontSize: 9, letterSpacing: 3, opacity: 0.7 },
   input: {
     backgroundColor: PANEL,
     borderColor: BORDER,
@@ -174,47 +170,28 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
   },
-  btnText: {
-    color: CYAN,
-    fontSize: 10,
-    letterSpacing: 3,
-  },
-  statusBox: {
-    backgroundColor: '#001a0a',
-    borderColor: '#00aa44',
-    borderWidth: 0.5,
-    borderRadius: 8,
-    padding: 12,
-    gap: 4,
-  },
+  btnText: { color: CYAN, fontSize: 10, letterSpacing: 3 },
+  statusBox: { backgroundColor: '#001a0a', borderColor: '#00aa44', borderWidth: 0.5, borderRadius: 8, padding: 12, gap: 4 },
   statusOk: { color: '#00cc66', fontSize: 11, letterSpacing: 2 },
   statusDetail: { color: '#88ccaa', fontSize: 12 },
-  errorBox: {
-    backgroundColor: '#1a0000',
-    borderColor: '#ff4444',
+  errorBox: { backgroundColor: '#1a0000', borderColor: '#ff4444', borderWidth: 0.5, borderRadius: 8, padding: 12 },
+  errorText: { color: '#ff6666', fontSize: 12 },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16 },
+  toggleLabel: { color: '#1a4466', fontSize: 12, letterSpacing: 1 },
+  toggleActive: { color: CYAN },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 },
+  clearText: { color: '#ff4444', fontSize: 9, letterSpacing: 1 },
+  logContainer: {
+    backgroundColor: '#010810',
+    borderColor: BORDER,
     borderWidth: 0.5,
     borderRadius: 8,
-    padding: 12,
+    padding: 10,
+    minHeight: 150,
   },
-  errorText: { color: '#ff6666', fontSize: 12 },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-  },
-  toggleLabel: {
-    color: '#1a4466',
-    fontSize: 12,
-    letterSpacing: 1,
-  },
-  toggleActive: {
-    color: CYAN,
-  },
-  infoText: {
-    color: '#446688',
-    fontSize: 12,
-    lineHeight: 22,
-    fontFamily: 'monospace',
-  },
+  emptyLog: { color: '#1a4466', fontSize: 10, textAlign: 'center', marginTop: 20 },
+  logEntry: { flexDirection: 'row', marginBottom: 4 },
+  logTime: { color: '#446688', fontSize: 9, width: 65, fontFamily: 'monospace' },
+  logMessage: { color: '#c8e8f0', fontSize: 10, flex: 1, fontFamily: 'monospace' },
+  logError: { color: '#ff6666' },
 });
